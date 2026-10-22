@@ -49,6 +49,7 @@ A modern, privacy-focused Chrome and Chromium (Edge, Brave, Opera) browser exten
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [Changelog](#changelog)
+- [Developer and Contacts](#developer-and-contacts)
 - [License and Credits](#license-and-credits)
 - [Disclaimer](#disclaimer)
 
@@ -478,6 +479,17 @@ Contributions, bug reports, and suggestions are welcome!
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md) for version history, changes, and migration details.
+
+---
+
+## Developer and Contacts
+
+**TrendLoom Studio**  
+- **Lead Developer & Maintainer**: Ajit Waghare
+- **Email**: [trendloommedia@gmail.com](mailto:trendloommedia@gmail.com)
+- **GitHub Repository**: [TrendLoom-Instagram-Downloader](https://github.com/TrendLoom/trendloom-instagram-downloader)
+- **Issue Tracker**: [GitHub Issues](https://github.com/TrendLoom/trendloom-instagram-downloader/issues)
+- **Support & Inquiries**: For commercial queries, custom feature requests, or general feedback, please reach out via email.
 
 ---
 
