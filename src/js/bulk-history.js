@@ -88,7 +88,7 @@ import {
     panel.setAttribute('aria-label', 'Download History');
     panel.innerHTML = `
       <button class="tb-toggle" type="button" aria-expanded="false" aria-controls="tb-body" aria-label="Open download history">
-        <span class="tb-icon" aria-hidden="true">↓</span>
+        <svg class="tb-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M12 3v15m-6-6 6 6 6-6" /></svg>
         <span class="tb-title">Download History</span>
       </button>
       <section class="tb-body" id="tb-body" hidden>
@@ -292,8 +292,9 @@ import {
     #turbo-bulk-history{position:fixed;z-index:2147483646;right:10px;bottom:10px;font:12px Arial,sans-serif;color:#171717;touch-action:none;user-select:none}
     #turbo-bulk-history button{border:0;border-radius:10px;padding:6px 9px;background:#fff;color:#171717;box-shadow:0 2px 12px #0003;cursor:pointer}
     #turbo-bulk-history button:focus{outline:2px solid #4381f4;outline-offset:2px}
-    #turbo-bulk-history .tb-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:32px;height:32px;padding:0;border:2px solid #4381f4;border-radius:50%;background:linear-gradient(45deg,#17b8a6 0%,#4381f4 100%);color:#fff;font-size:16px;font-weight:700;box-shadow:0 3px 8px rgba(20,45,85,.22);transition:width .18s ease,border-radius .18s ease}
-    #turbo-bulk-history .tb-icon{font-size:17px;line-height:1;transform:translateY(1.5px)}
+    #turbo-bulk-history .tb-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:36px;height:36px;padding:0;border:2px solid #4381f4;border-radius:50%;background:linear-gradient(135deg,#18b8a5 0%,#4381f4 100%);color:#fff;font-size:16px;font-weight:700;box-shadow:0 3px 7px rgba(20,45,85,.2);transition:width .18s ease,border-radius .18s ease}
+    #turbo-bulk-history .tb-icon{display:block;width:17px;height:17px;overflow:visible;transform:translateY(1px)}
+    #turbo-bulk-history .tb-icon path{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     #turbo-bulk-history .tb-title{display:none;white-space:nowrap;font-size:13px}
     #turbo-bulk-history.tb-expanded .tb-toggle{width:auto;max-width:calc(100vw - 20px);height:32px;padding:0 10px;border-radius:18px}
     #turbo-bulk-history.tb-expanded .tb-title{display:inline}
