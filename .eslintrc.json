@@ -1,0 +1,43 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "webextensions": true
+  },
+  "extends": [
+    "eslint:recommended",
+    "prettier"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "plugins": ["prettier"],
+  "rules": {
+    "prettier/prettier": "error",
+    "no-console": "warn",
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+    "no-debugger": "warn",
+    "prefer-const": "error",
+    "no-var": "error"
+  },
+  "globals": {
+    "chrome": "readonly",
+    "browser": "readonly"
+  },
+  "overrides": [
+    {
+      "files": ["src/tests/**/*.js"],
+      "env": { "jest": true, "node": true }
+    }
+  ],
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/",
+    "src/js/extension.js",
+    "src/js/inject.js",
+    "src/js/options.js",
+    "src/js/options_listener_inject.js",
+    "*.min.js"
+  ]
+}
