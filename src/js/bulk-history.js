@@ -3,67 +3,68 @@ import {
   getDownloadHistory,
   saveDownloadHistory,
 } from './utils/storage.js';
+import {
+  DOWNLOAD_BUTTON_SELECTORS,
+  findDownloadButtons,
+  getInstagramPageKind,
+  getPostDetails,
+  getReelPoster as findReelPoster,
+} from './utils/instagram-compat.js';
 
 (() => {
   if (window.__turboBulkHistoryInstalled) return;
   window.__turboBulkHistoryInstalled = true;
 
   // Every download control the extension injects (see src/css/extension.css).
-  const DOWNLOAD_BUTTONS = [
-    '.post-download-all-button',
-    '.post-download-button',
-    '.hover-download-button',
-    '.account-download-button',
-    '.reels-feed-download-button',
-    '.story-download-button',
-    '.story-download-all-button',
-    '.bulk-download-link',
-  ].join(',');
-
-  // Instagram routes that are not user handles.
-  const RESERVED_ROUTES = new Set([
-    'p',
-    'reel',
-    'reels',
-    'tv',
-    'stories',
-    'explore',
-    'direct',
-    'accounts',
-    'about',
-    'settings',
-    'search',
-  ]);
+  const DOWNLOAD_BUTTONS = DOWNLOAD_BUTTON_SELECTORS.join(',');
 
   let panel;
   let historyGeneration = 0;
   let historyWriteQueue = Promise.resolve();
   let missingButtonsWarned = false;
 
+  function constrainPanelPosition() {
+    if (!panel?.isConnected) return;
+    const margin = 8;
+    const rect = panel.getBoundingClientRect();
+    const maxLeft = Math.max(margin, innerWidth - panel.offsetWidth - margin);
+    const maxTop = Math.max(margin, innerHeight - panel.offsetHeight - margin);
+    const left = parseFloat(panel.style.left || `${rect.left}`);
+    const top = parseFloat(panel.style.top || `${rect.top}`);
+    panel.style.left = `${Math.min(maxLeft, Math.max(margin, left))}px`;
+    panel.style.top = `${Math.min(maxTop, Math.max(margin, top))}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+
+  function savePanelPosition() {
+    constrainPanelPosition();
+    try {
+      localStorage.setItem(
+        'turboHistoryPosition',
+        JSON.stringify({ left: panel.style.left, top: panel.style.top })
+      );
+    } catch (_) {
+      /* Storage can be unavailable on restricted pages. */
+    }
+  }
+
+  function showToast(message, type = 'success') {
+    document.querySelector('#turbo-download-toast')?.remove();
+    const toast = document.createElement('div');
+    toast.id = 'turbo-download-toast';
+    toast.className = `tb-toast tb-toast-${type}`;
+    toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    toast.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
+    toast.textContent = message;
+    document.body.append(toast);
+    setTimeout(() => toast.remove(), 3500);
+  }
+
   function serializeHistoryWrite(operation) {
     const next = historyWriteQueue.then(operation);
     historyWriteQueue = next.catch(() => {});
     return next;
-  }
-
-  function usernameFromPath(pathname) {
-    const segment = pathname.split('/').filter(Boolean)[0];
-    if (!segment || RESERVED_ROUTES.has(segment.toLowerCase())) return '';
-    return segment;
-  }
-
-  function postDetails(button) {
-    const article = button.closest('article');
-    const postLink = article?.querySelector('a[href*="/p/"], a[href*="/reel/"], a[href*="/tv/"]');
-    const userLink = article?.querySelector('a[href^="/"]');
-    const username =
-      userLink?.getAttribute('href')?.split('/').filter(Boolean)[0] ||
-      usernameFromPath(location.pathname);
-
-    return {
-      label: username ? `@${username}` : 'Instagram download',
-      url: postLink ? new URL(postLink.getAttribute('href'), location.origin).href : location.href,
-    };
   }
 
   /**
@@ -72,10 +73,10 @@ import {
    * silently stay empty - this makes that visible instead.
    */
   function checkForDownloadButtons() {
-    if (missingButtonsWarned || document.querySelector(DOWNLOAD_BUTTONS)) return;
+    if (missingButtonsWarned || findDownloadButtons().length) return;
     missingButtonsWarned = true;
     console.warn(
-      '[TrendLoom] No download buttons found on this page. The download history panel will stay empty until the extension is updated for the current Instagram markup.'
+      `[TrendLoom] No download buttons found on this Instagram ${getInstagramPageKind(location.pathname)} page. Instagram may have changed the page markup.`
     );
   }
 
@@ -87,7 +88,7 @@ import {
     panel.setAttribute('role', 'region');
     panel.setAttribute('aria-label', 'Download History');
     panel.innerHTML = `
-      <button class="tb-toggle" type="button" aria-expanded="false" aria-controls="tb-body" aria-label="Open download history">
+      <button class="tb-toggle" type="button" aria-expanded="false" aria-controls="tb-body" aria-label="Open download history" data-tooltip="Open download history · Drag to move">
         <svg class="tb-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M12 3v15m-6-6 6 6 6-6" /></svg>
         <span class="tb-title">Download History</span>
       </button>
@@ -109,9 +110,13 @@ import {
       panel
         .querySelector('.tb-toggle')
         .setAttribute('aria-label', expanded ? 'Close download history' : 'Open download history');
+      panel.querySelector('.tb-toggle').dataset.tooltip = expanded
+        ? 'Close download history · Drag to move'
+        : 'Open download history · Drag to move';
       if (expanded) {
         renderHistory();
         checkForDownloadButtons();
+        setTimeout(savePanelPosition, 350);
       }
     });
     panel.querySelector('.tb-clear').addEventListener('click', clearHistory);
@@ -137,8 +142,8 @@ import {
       const dy = event.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
       if (!moved) return;
-      panel.style.left = `${Math.max(0, Math.min(innerWidth - panel.offsetWidth, drag.left + dx))}px`;
-      panel.style.top = `${Math.max(0, Math.min(innerHeight - panel.offsetHeight, drag.top + dy))}px`;
+      panel.style.left = `${Math.max(8, Math.min(innerWidth - panel.offsetWidth - 8, drag.left + dx))}px`;
+      panel.style.top = `${Math.max(8, Math.min(innerHeight - panel.offsetHeight - 8, drag.top + dy))}px`;
       panel.style.right = 'auto';
       panel.style.bottom = 'auto';
     });
@@ -146,14 +151,18 @@ import {
       if (!drag) return;
       drag = null;
       if (moved) {
-        try {
-          localStorage.setItem(
-            'turboHistoryPosition',
-            JSON.stringify({ left: panel.style.left, top: panel.style.top })
-          );
-        } catch (_) {
-          /* Storage can be unavailable on restricted pages. */
-        }
+        const rect = panel.getBoundingClientRect();
+        const maxLeft = Math.max(8, innerWidth - panel.offsetWidth - 8);
+        const maxTop = Math.max(8, innerHeight - panel.offsetHeight - 8);
+        let left = Math.max(8, Math.min(maxLeft, rect.left));
+        let top = Math.max(8, Math.min(maxTop, rect.top));
+        if (left - 8 < 24) left = 8;
+        else if (maxLeft - left < 24) left = maxLeft;
+        if (top - 8 < 24) top = 8;
+        else if (maxTop - top < 24) top = maxTop;
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        savePanelPosition();
         toggle.dataset.dragged = 'true';
         setTimeout(() => delete toggle.dataset.dragged, 0);
       }
@@ -167,14 +176,26 @@ import {
         Number.isFinite(parseFloat(position.left)) &&
         Number.isFinite(parseFloat(position.top))
       ) {
-        panel.style.left = `${Math.max(0, Math.min(innerWidth - 56, parseFloat(position.left)))}px`;
-        panel.style.top = `${Math.max(0, Math.min(innerHeight - 56, parseFloat(position.top)))}px`;
+        panel.style.left = `${Math.max(8, Math.min(innerWidth - 56, parseFloat(position.left)))}px`;
+        panel.style.top = `${Math.max(8, Math.min(innerHeight - 56, parseFloat(position.top)))}px`;
         panel.style.right = 'auto';
         panel.style.bottom = 'auto';
       }
     } catch (_) {
       /* Ignore invalid saved positions. */
     }
+    toggle.addEventListener('keydown', (event) => {
+      if (!event.altKey || !['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key))
+        return;
+      event.preventDefault();
+      const rect = panel.getBoundingClientRect();
+      const step = event.shiftKey ? 40 : 16;
+      const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+      const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+      panel.style.left = `${rect.left + dx}px`;
+      panel.style.top = `${rect.top + dy}px`;
+      savePanelPosition();
+    });
     return panel;
   }
 
@@ -224,28 +245,69 @@ import {
     renderHistory();
   }
 
-  async function waitForDownload() {
+  async function waitForDownload(previousProgress, previousAlerts) {
     const started = Date.now();
-    while (Date.now() - started < 90000) {
-      const progress = document.querySelector('.downloadProgress');
-      const message = document.querySelector('.alert-message')?.textContent?.trim() || '';
+    let sawProgress = false;
+    let idleSince = 0;
 
-      if (progress && getComputedStyle(progress).display !== 'none') {
-        if (/could not|failed|temporarily preventing/i.test(message)) {
-          throw new Error(message);
+    while (Date.now() - started < 90000) {
+      const progressBars = [...document.querySelectorAll('.downloadProgress')].filter(
+        (progress) => !previousProgress.has(progress)
+      );
+      const visibleProgress = progressBars.filter(
+        (progress) => getComputedStyle(progress).display !== 'none'
+      );
+      if (visibleProgress.length) {
+        sawProgress = true;
+        idleSince = 0;
+        for (const progress of visibleProgress) {
+          const message =
+            progress.parentElement?.querySelector('.alert-message')?.textContent?.trim() || '';
+          if (
+            /could not|failed|temporarily preventing|permission not granted|request did not succeed/i.test(
+              message
+            )
+          ) {
+            throw new Error(message);
+          }
         }
-      } else if (Date.now() - started > 1500) {
-        return;
+      } else if (sawProgress) {
+        if (!idleSince) idleSince = Date.now();
+        if (Date.now() - idleSince >= 500) return;
+      } else {
+        const newError = [...document.querySelectorAll('.alert-message')].find((alert) => {
+          const message = alert.textContent.trim();
+          return (
+            message &&
+            message !== previousAlerts.get(alert) &&
+            /could not|failed|temporarily preventing|permission not granted|request did not succeed/i.test(
+              message
+            )
+          );
+        });
+        if (newError) throw new Error(newError.textContent.trim());
+        if (Date.now() - started > 10000) {
+          throw new Error(
+            'No download activity was detected. Try again after refreshing Instagram.'
+          );
+        }
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 150));
     }
     throw new Error('Timed out waiting for Instagram to finish the download');
   }
 
   async function recordDownload(button) {
     const generation = historyGeneration;
-    const details = postDetails(button);
+    const details = getPostDetails(button);
+    const previousProgress = new Set(document.querySelectorAll('.downloadProgress'));
+    const previousAlerts = new Map(
+      [...document.querySelectorAll('.alert-message')].map((alert) => [
+        alert,
+        alert.textContent.trim(),
+      ])
+    );
     const id =
       globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const wasSaved = await serializeHistoryWrite(async () => {
@@ -265,7 +327,7 @@ import {
     renderHistory();
 
     try {
-      await waitForDownload();
+      await waitForDownload(previousProgress, previousAlerts);
       await updateHistoryItem(id, 'completed');
     } catch (error) {
       await updateHistoryItem(id, 'failed', error.message || 'Download failed');
@@ -293,19 +355,10 @@ import {
     );
   }
 
-  function getReelPoster(downloadButton) {
-    let container = downloadButton.parentElement;
-    for (let depth = 0; container && depth < 10; depth += 1, container = container.parentElement) {
-      const video = container.querySelector('video');
-      if (video?.poster) return video.poster;
-    }
-    return '';
-  }
-
   async function downloadReelThumbnail(button) {
-    const posterUrl = getReelPoster(button);
+    const posterUrl = findReelPoster(button);
     if (!posterUrl) {
-      console.warn('[TrendLoom] This Reel does not expose a downloadable thumbnail.');
+      showToast('Reel thumbnail is unavailable.', 'error');
       return;
     }
     try {
@@ -320,20 +373,27 @@ import {
       anchor.click();
       anchor.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      showToast('Reel thumbnail downloaded.');
     } catch (error) {
       console.error('[TrendLoom] Could not download Reel thumbnail:', error);
+      showToast('Could not download the Reel thumbnail. Please try again.', 'error');
     }
   }
 
   function addReelThumbnailButtons(root = document) {
-    root.querySelectorAll?.('.reels-feed-download-button').forEach((downloadButton) => {
+    const buttons = [];
+    if (root.matches?.('.reels-feed-download-button')) buttons.push(root);
+    buttons.push(...(root.querySelectorAll?.('.reels-feed-download-button') || []));
+    buttons.forEach((downloadButton) => {
       if (downloadButton.parentElement?.querySelector('.tb-reel-thumbnail-button')) return;
       const thumbnailButton = document.createElement('button');
       thumbnailButton.type = 'button';
       thumbnailButton.className = 'tb-reel-thumbnail-button';
       thumbnailButton.setAttribute('aria-label', 'Download Reel thumbnail');
+      thumbnailButton.dataset.tooltip = 'Download Reel thumbnail';
       thumbnailButton.title = 'Download Reel thumbnail';
-      thumbnailButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7 15l3-3 2 2 2-2 3 3M12 8v5m-2-2 2 2 2-2"/></svg>';
+      thumbnailButton.innerHTML =
+        '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7 15l3-3 2 2 2-2 3 3M12 8v5m-2-2 2 2 2-2"/></svg>';
       downloadButton.insertAdjacentElement('afterend', thumbnailButton);
     });
   }
@@ -344,6 +404,7 @@ import {
     #turbo-bulk-history{position:fixed;z-index:2147483646;right:10px;bottom:10px;font:12px Arial,sans-serif;color:#171717;touch-action:none;user-select:none}
     #turbo-bulk-history button{border:0;border-radius:10px;padding:6px 9px;background:#fff;color:#171717;box-shadow:0 2px 12px #0003;cursor:pointer}
     #turbo-bulk-history button:focus{outline:2px solid #4381f4;outline-offset:2px}
+    #turbo-bulk-history button:focus-visible,.tb-reel-thumbnail-button:focus-visible{outline:3px solid #fff;outline-offset:3px;box-shadow:0 0 0 5px #3478f6,0 5px 12px rgba(14,35,70,.25)}
     #turbo-bulk-history .tb-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(145deg,rgba(72,190,230,.88),rgba(63,112,238,.9));-webkit-backdrop-filter:blur(12px) saturate(170%);backdrop-filter:blur(12px) saturate(170%);color:#fff;font-size:16px;font-weight:700;box-shadow:0 5px 12px rgba(14,35,70,.25),inset 0 1px 0 rgba(255,255,255,.62),inset 0 -1px 0 rgba(255,255,255,.16);transition:width .32s cubic-bezier(.2,.8,.2,1),border-radius .32s cubic-bezier(.2,.8,.2,1),transform .24s cubic-bezier(.2,.8,.2,1),box-shadow .24s ease}
     #turbo-bulk-history .tb-toggle:hover{transform:translateY(-1px);box-shadow:0 7px 15px rgba(14,35,70,.28),inset 0 1px 0 rgba(255,255,255,.72),inset 0 -1px 0 rgba(255,255,255,.2)}
     #turbo-bulk-history .tb-icon{position:absolute;left:50%;top:50%;display:block;flex:none;width:18px;height:18px;margin:0;overflow:visible;transform:translate(-50%,calc(-50% + 1px))}
@@ -366,13 +427,26 @@ import {
     #turbo-bulk-history .tb-list .tb-failed span{color:#b3261e}
     #turbo-bulk-history .tb-empty{padding:14px 0;color:#666;list-style:none}
     .tb-reel-thumbnail-button{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 0 20px 4px;padding:0;border:1px solid rgba(255,255,255,.75);border-radius:50%;background:rgba(20,20,20,.65);color:#fff;font-size:17px;line-height:1;cursor:pointer}
+    #turbo-bulk-history .tb-toggle{position:relative}
+    #turbo-bulk-history .tb-toggle::after,.tb-reel-thumbnail-button::after{position:absolute;z-index:2147483647;right:0;bottom:calc(100% + 8px);width:max-content;max-width:min(240px,calc(100vw - 24px));padding:6px 9px;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:rgba(20,24,34,.94);color:#fff;font:12px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:normal;box-shadow:0 3px 10px #0003;opacity:0;visibility:hidden;transform:translateY(3px);transition:opacity .14s ease,transform .14s ease,visibility 0s linear .14s;pointer-events:none}
+    #turbo-bulk-history .tb-toggle::after{content:attr(data-tooltip)}
+    .tb-reel-thumbnail-button{position:relative}
+    .tb-reel-thumbnail-button::after{content:attr(data-tooltip)}
+    #turbo-bulk-history .tb-toggle:hover::after,#turbo-bulk-history .tb-toggle:focus-visible::after,.tb-reel-thumbnail-button:hover::after,.tb-reel-thumbnail-button:focus-visible::after{opacity:1;visibility:visible;transform:translateY(0);transition-delay:0s}
+    .tb-toast{position:fixed;z-index:2147483647;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:min(340px,calc(100vw - 32px));padding:11px 15px;border:1px solid rgba(255,255,255,.25);border-radius:12px;background:rgba(24,32,45,.96);color:#fff;font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:0 5px 18px rgba(0,0,0,.24);animation:tb-toast-in .2s ease-out}
+    .tb-toast-error{background:rgba(130,35,40,.97)}
+    @keyframes tb-toast-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
     .tb-reel-thumbnail-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-    @media(max-width:520px){#turbo-bulk-history.tb-expanded .tb-toggle{font-size:12px}#turbo-bulk-history .tb-body{width:min(300px,calc(100vw - 16px));padding:8px}}
-    @media(prefers-reduced-motion:reduce){#turbo-bulk-history .tb-toggle,#turbo-bulk-history .tb-title,#turbo-bulk-history .tb-body{transition:none}#turbo-bulk-history .tb-toggle:hover{transform:none}}
+    @media(max-width:520px){#turbo-bulk-history.tb-expanded .tb-toggle{font-size:12px}#turbo-bulk-history .tb-body{width:min(300px,calc(100vw - 16px));padding:8px}.tb-reel-thumbnail-button{width:44px;height:44px;margin-bottom:16px}.tb-reel-thumbnail-button svg{width:20px;height:20px}}
+    @media(prefers-reduced-motion:reduce){#turbo-bulk-history .tb-toggle,#turbo-bulk-history .tb-title,#turbo-bulk-history .tb-body,#turbo-bulk-history .tb-toggle::after,.tb-reel-thumbnail-button::after{transition:none}#turbo-bulk-history .tb-toggle:hover{transform:none}.tb-toast{animation:none}}
     @supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){#turbo-bulk-history .tb-toggle{background:linear-gradient(145deg,#48bee6,#3f70ee)}}
   `;
   document.documentElement.append(style);
   ensurePanel();
+  window.addEventListener('resize', () => {
+    constrainPanelPosition();
+    savePanelPosition();
+  });
   document.addEventListener('click', onDownloadClick, true);
   addReelThumbnailButtons();
   const reelThumbnailObserver = new MutationObserver((mutations) => {

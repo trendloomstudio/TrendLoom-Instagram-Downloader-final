@@ -60,13 +60,14 @@ A modern, privacy-focused Chrome and Chromium (Edge, Brave, Opera) browser exten
 - **Comprehensive Media Downloads**:
   - **Photos & Videos**: Download single image posts and video clips in their highest available resolution.
   - **Carousel Posts**: Download individual carousel slides or batch-download all items simultaneously with a single click.
-  - **Reels**: Integrated download button directly in the Instagram Reels feed.
+  - **Reels**: Integrated download button directly in the Instagram Reels feed, with a separate thumbnail control when a poster is available.
   - **Stories & Highlights**: Save single Stories or all active Stories/Highlights from an account.
   - **Profile Pictures**: Hover over profile avatars to download high-resolution account pictures.
 - **Draggable Download History Panel**:
-  - Live status tracking (`downloading`, `completed`, `failed` with descriptive error messages).
+  - Status tracking (`downloading`, `completed`, or `failed`) follows the progress element created for each download. Missing progress is reported as a failure rather than a success.
+  - `completed` means the media request finished and the browser download was triggered; the extension does not inspect the browser's download shelf.
   - Keeps the 250 most recent download entries locally in `chrome.storage.local`.
-  - Floating action button that can be freely dragged across the screen and remembers its position (`localStorage`).
+  - Floating action button that snaps to nearby screen edges, stays in view after resizing, and remembers its position (`localStorage`).
   - Diagnostic warnings if Instagram markup changes (`No download buttons found`).
   - One-click "Clear history" button.
 - **Accessibility First**:
@@ -146,6 +147,7 @@ Once installed, TrendLoom seamlessly integrates download triggers into Instagram
 
 ### Instagram Reels
 - When watching Reels in the Reels feed, click the download button located in the right-hand interaction rail (`.reels-feed-download-button`).
+- If a poster image is available, use the adjacent thumbnail control to save it separately. The extension displays a success or failure message.
 
 ### Stories and Highlights
 - When viewing a Story or Highlight, download controls appear at the top:
@@ -159,12 +161,14 @@ Once installed, TrendLoom seamlessly integrates download triggers into Instagram
 - Look for the circular floating download history button in the bottom-right corner of the page.
 - **Expand / Collapse**: Click the toggle button to open or close the panel.
 - **Drag & Reposition**: Click and hold the toggle button to drag it anywhere on the screen. The coordinates are automatically saved to `localStorage` (`turboHistoryPosition`) and restored across page visits.
+- **Keyboard Reposition**: Focus the button and press `Alt + Arrow` to move it; hold `Shift` for larger steps. Dragging snaps the button to nearby edges.
 - **View Status**: Review each download's real-time state (`downloading`, `completed`, or `failed` with error details).
 - **Clear History**: Click "Clear history" to reset the log.
 
 ### Keyboard Shortcuts and Accessibility
 - `Tab` / `Shift + Tab`: Move focus through interactive elements including injected download buttons and history controls.
 - `Enter` / `Space`: Trigger the focused download button or toggle the history panel.
+- `Alt + Arrow keys`: Move the floating history button; `Shift + Alt + Arrow` moves it farther.
 - ARIA landmarks and live status alerts inform screen readers of download operations.
 
 ---
@@ -261,7 +265,8 @@ trendloom-instagram-downloader/
 │   │   └── options.css          # Extension options page styles
 │   ├── js/
 │   │   ├── utils/
-│   │   │   └── storage.js       # Centralized Chrome storage manager & history limit
+│   │   │   ├── storage.js       # Centralized Chrome storage manager & history limit
+│   │   │   └── instagram-compat.js # Instagram route, selector and media DOM adapter
 │   │   ├── background.js        # Minimal Manifest V3 service worker
 │   │   ├── bulk-history.js      # Draggable download history panel & event tracker
 │   │   ├── extension.js         # Core UI button injector & download coordinator
@@ -271,7 +276,8 @@ trendloom-instagram-downloader/
 │   ├── tests/
 │   │   ├── bulk-history.test.js # Unit tests for history panel & accessibility
 │   │   ├── setup.js             # Jest test environment & Chrome API mocks
-│   │   └── storage.test.js      # Unit tests for storage utilities
+│   │   ├── storage.test.js      # Unit tests for storage utilities
+│   │   └── instagram-compat.test.js # Route and Instagram markup adapter tests
 │   └── types/
 │       └── index.d.ts           # TypeScript definitions for Chrome APIs and data structures
 ├── .babelrc                     # Babel transpiler configuration
@@ -291,7 +297,7 @@ trendloom-instagram-downloader/
 └── webpack.config.js            # Webpack bundling configuration
 ```
 
-> **Note**: `src/js/extension.js`, `src/js/inject.js`, `src/js/options.js`, and `src/js/options_listener_inject.js` are prebuilt upstream bundles. They are compiled into `dist/` by Webpack and are intentionally excluded from linting and formatting. Hand-written sources subject to linting and formatting are `src/js/background.js`, `src/js/bulk-history.js`, `src/js/utils/*.js`, and `src/tests/*.js`.
+> **Note**: `src/js/extension.js`, `src/js/inject.js`, `src/js/options.js`, and `src/js/options_listener_inject.js` are prebuilt upstream bundles. They are compiled into `dist/` by Webpack and intentionally excluded from linting and formatting. Keep Instagram route, selector, and DOM compatibility logic in the hand-written `src/js/utils/instagram-compat.js` adapter so bundle updates do not overwrite it. Hand-written sources subject to linting and formatting are `src/js/background.js`, `src/js/bulk-history.js`, `src/js/utils/*.js`, and `src/tests/*.js`.
 
 ---
 
@@ -367,8 +373,11 @@ npm run test:watch
 ```
 
 Test files are located in `src/tests/`:
-- `bulk-history.test.js`: Verifies download history panel creation, accessibility attributes, clear actions, and ensures legacy checkbox controls are not rendered.
+- `bulk-history.test.js`: Verifies history actions, progress outcomes, keyboard movement, thumbnail feedback, and mobile/accessibility styles.
+- `instagram-compat.test.js`: Verifies Instagram route detection, supported download selectors, post details, and Reel poster lookup.
 - `storage.test.js`: Tests storage getters, setters, removal, error handling, and the 250-item trimming limit.
+
+For real Instagram, touch, and browser download checks, follow the [browser QA checklist](BROWSER_QA.md). Jest runs in JSDOM and does not replace those manual checks.
 
 ### Type Checking
 
@@ -503,4 +512,3 @@ See [CHANGELOG.md](CHANGELOG.md) for version history, changes, and migration det
 ## Disclaimer
 
 This browser extension is intended for personal use and archival purposes only. Please respect Instagram's Terms of Service and copyright laws when downloading media. The authors and contributors are not responsible for any misuse of this software.
-

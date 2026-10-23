@@ -12,8 +12,8 @@
     "lint:fix": "eslint src/js/background.js src/js/bulk-history.js src/js/utils/*.js src/tests/*.js --fix",
     "format": "prettier --write src/js/background.js src/js/bulk-history.js src/js/utils/*.js src/tests/*.js",
     "format:check": "prettier --check src/js/background.js src/js/bulk-history.js src/js/utils/*.js src/tests/*.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
+    "test": "jest --watchman=false",
+    "test:watch": "jest --watch --watchman=false",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules",
     "zip": "npm run build && cd dist && zip -r trendloom-instagram-downloader.zip . -x 'trendloom-instagram-downloader.zip' '*.map'"
