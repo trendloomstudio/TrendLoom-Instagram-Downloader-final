@@ -91,7 +91,7 @@ import {
         <svg class="tb-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M12 3v15m-6-6 6 6 6-6" /></svg>
         <span class="tb-title">Download History</span>
       </button>
-      <section class="tb-body" id="tb-body" hidden>
+      <section class="tb-body" id="tb-body" aria-hidden="true">
         <div class="tb-actions">
           <button class="tb-clear" type="button" aria-label="Clear download history">Clear history</button>
         </div>
@@ -102,8 +102,8 @@ import {
 
     panel.querySelector('.tb-toggle').addEventListener('click', () => {
       const body = panel.querySelector('.tb-body');
-      const expanded = body.hidden;
-      body.hidden = !expanded;
+      const expanded = !panel.classList.contains('tb-expanded');
+      body.setAttribute('aria-hidden', String(!expanded));
       panel.querySelector('.tb-toggle').setAttribute('aria-expanded', String(expanded));
       panel.classList.toggle('tb-expanded', expanded);
       panel
@@ -279,11 +279,63 @@ import {
   }
 
   function onDownloadClick(event) {
+    const thumbnailButton = event.target.closest?.('.tb-reel-thumbnail-button');
+    if (thumbnailButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      downloadReelThumbnail(thumbnailButton);
+      return;
+    }
     const button = event.target.closest?.(DOWNLOAD_BUTTONS);
     if (!button || panel?.contains(button)) return;
     recordDownload(button).catch((error) =>
       console.error('Could not save download history:', error)
     );
+  }
+
+  function getReelPoster(downloadButton) {
+    let container = downloadButton.parentElement;
+    for (let depth = 0; container && depth < 10; depth += 1, container = container.parentElement) {
+      const video = container.querySelector('video');
+      if (video?.poster) return video.poster;
+    }
+    return '';
+  }
+
+  async function downloadReelThumbnail(button) {
+    const posterUrl = getReelPoster(button);
+    if (!posterUrl) {
+      console.warn('[TrendLoom] This Reel does not expose a downloadable thumbnail.');
+      return;
+    }
+    try {
+      const response = await fetch(posterUrl);
+      if (!response.ok) throw new Error(`Thumbnail request failed (${response.status})`);
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      const extension = new URL(posterUrl).pathname.match(/\.([a-z\d]+)$/i)?.[1] || 'jpg';
+      anchor.download = `instagram-reel-thumbnail-${Date.now()}.${extension}`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (error) {
+      console.error('[TrendLoom] Could not download Reel thumbnail:', error);
+    }
+  }
+
+  function addReelThumbnailButtons(root = document) {
+    root.querySelectorAll?.('.reels-feed-download-button').forEach((downloadButton) => {
+      if (downloadButton.parentElement?.querySelector('.tb-reel-thumbnail-button')) return;
+      const thumbnailButton = document.createElement('button');
+      thumbnailButton.type = 'button';
+      thumbnailButton.className = 'tb-reel-thumbnail-button';
+      thumbnailButton.setAttribute('aria-label', 'Download Reel thumbnail');
+      thumbnailButton.title = 'Download Reel thumbnail';
+      thumbnailButton.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM7 15l3-3 2 2 2-2 3 3M12 8v5m-2-2 2 2 2-2"/></svg>';
+      downloadButton.insertAdjacentElement('afterend', thumbnailButton);
+    });
   }
 
   const style = document.createElement('style');
@@ -292,15 +344,18 @@ import {
     #turbo-bulk-history{position:fixed;z-index:2147483646;right:10px;bottom:10px;font:12px Arial,sans-serif;color:#171717;touch-action:none;user-select:none}
     #turbo-bulk-history button{border:0;border-radius:10px;padding:6px 9px;background:#fff;color:#171717;box-shadow:0 2px 12px #0003;cursor:pointer}
     #turbo-bulk-history button:focus{outline:2px solid #4381f4;outline-offset:2px}
-    #turbo-bulk-history .tb-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:36px;height:36px;padding:0;border:2px solid #4381f4;border-radius:50%;background:linear-gradient(135deg,#18b8a5 0%,#4381f4 100%);color:#fff;font-size:16px;font-weight:700;box-shadow:0 3px 7px rgba(20,45,85,.2);transition:width .18s ease,border-radius .18s ease}
-    #turbo-bulk-history .tb-icon{display:block;width:17px;height:17px;overflow:visible;transform:translateY(1px)}
+    #turbo-bulk-history .tb-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:36px;height:36px;padding:0;border:1px solid rgba(255,255,255,.72);border-radius:50%;background:linear-gradient(145deg,rgba(72,190,230,.88),rgba(63,112,238,.9));-webkit-backdrop-filter:blur(12px) saturate(170%);backdrop-filter:blur(12px) saturate(170%);color:#fff;font-size:16px;font-weight:700;box-shadow:0 5px 12px rgba(14,35,70,.25),inset 0 1px 0 rgba(255,255,255,.62),inset 0 -1px 0 rgba(255,255,255,.16);transition:width .32s cubic-bezier(.2,.8,.2,1),border-radius .32s cubic-bezier(.2,.8,.2,1),transform .24s cubic-bezier(.2,.8,.2,1),box-shadow .24s ease}
+    #turbo-bulk-history .tb-toggle:hover{transform:translateY(-1px);box-shadow:0 7px 15px rgba(14,35,70,.28),inset 0 1px 0 rgba(255,255,255,.72),inset 0 -1px 0 rgba(255,255,255,.2)}
+    #turbo-bulk-history .tb-icon{position:absolute;left:50%;top:50%;display:block;flex:none;width:18px;height:18px;margin:0;overflow:visible;transform:translate(-50%,calc(-50% + 1px))}
     #turbo-bulk-history .tb-icon path{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    #turbo-bulk-history .tb-title{display:none;white-space:nowrap;font-size:13px}
+    #turbo-bulk-history.tb-expanded .tb-icon{position:static;width:16px;height:16px;margin-left:1px;transform:translateY(1px)}
+    #turbo-bulk-history .tb-title{display:inline-block;max-width:0;overflow:hidden;opacity:0;white-space:nowrap;font-size:13px;transition:max-width .32s cubic-bezier(.2,.8,.2,1),opacity .18s ease}
     #turbo-bulk-history.tb-expanded .tb-toggle{width:auto;max-width:calc(100vw - 20px);height:32px;padding:0 10px;border-radius:18px}
-    #turbo-bulk-history.tb-expanded .tb-title{display:inline}
+    #turbo-bulk-history.tb-expanded .tb-title{max-width:180px;opacity:1;transition-delay:.06s}
     #turbo-bulk-history .tb-toggle{touch-action:none;cursor:grab}
     #turbo-bulk-history .tb-toggle:active{cursor:grabbing}
-    #turbo-bulk-history .tb-body{box-sizing:border-box;margin-top:4px;width:min(320px,calc(100vw - 20px));max-height:38vh;overflow:auto;border-radius:12px;padding:10px;background:#fff;box-shadow:0 2px 16px #0003}
+    #turbo-bulk-history .tb-body{box-sizing:border-box;margin-top:0;width:min(320px,calc(100vw - 20px));max-height:0;overflow:hidden;visibility:hidden;opacity:0;transform:translateY(8px) scale(.98);transform-origin:top right;border-radius:12px;padding:0 10px;background:#fff;box-shadow:0 2px 16px #0003;pointer-events:none;transition:max-height .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease,transform .32s cubic-bezier(.2,.8,.2,1),padding .32s ease,margin .32s ease,visibility 0s linear .32s}
+    #turbo-bulk-history.tb-expanded .tb-body{margin-top:4px;max-height:38vh;overflow:auto;visibility:visible;opacity:1;transform:translateY(0) scale(1);padding:10px;pointer-events:auto;transition:max-height .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease .04s,transform .32s cubic-bezier(.2,.8,.2,1),padding .32s ease,margin .32s ease,visibility 0s}
     #turbo-bulk-history .tb-actions{display:flex;gap:8px;flex-wrap:wrap}
     #turbo-bulk-history .tb-clear{font-size:12px}
     #turbo-bulk-history .tb-list{padding-left:16px;margin:7px 0 0}
@@ -310,11 +365,24 @@ import {
     #turbo-bulk-history .tb-list span{color:#555;font-size:12px}
     #turbo-bulk-history .tb-list .tb-failed span{color:#b3261e}
     #turbo-bulk-history .tb-empty{padding:14px 0;color:#666;list-style:none}
+    .tb-reel-thumbnail-button{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 0 20px 4px;padding:0;border:1px solid rgba(255,255,255,.75);border-radius:50%;background:rgba(20,20,20,.65);color:#fff;font-size:17px;line-height:1;cursor:pointer}
+    .tb-reel-thumbnail-button svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
     @media(max-width:520px){#turbo-bulk-history.tb-expanded .tb-toggle{font-size:12px}#turbo-bulk-history .tb-body{width:min(300px,calc(100vw - 16px));padding:8px}}
+    @media(prefers-reduced-motion:reduce){#turbo-bulk-history .tb-toggle,#turbo-bulk-history .tb-title,#turbo-bulk-history .tb-body{transition:none}#turbo-bulk-history .tb-toggle:hover{transform:none}}
+    @supports not ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){#turbo-bulk-history .tb-toggle{background:linear-gradient(145deg,#48bee6,#3f70ee)}}
   `;
   document.documentElement.append(style);
   ensurePanel();
   document.addEventListener('click', onDownloadClick, true);
+  addReelThumbnailButtons();
+  const reelThumbnailObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) addReelThumbnailButtons(node);
+      }
+    }
+  });
+  reelThumbnailObserver.observe(document.documentElement, { childList: true, subtree: true });
   chrome.storage.onChanged?.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.turboDownloadHistory) renderHistory();
   });

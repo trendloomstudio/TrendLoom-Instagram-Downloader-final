@@ -85,6 +85,10 @@ module.exports = (env, argv) => {
     optimization: {
       minimize: isProduction,
     },
+    performance: {
+      maxAssetSize: 400 * 1024,
+      maxEntrypointSize: 400 * 1024,
+    },
     watchOptions: {
       ignored: /node_modules/,
     },
