@@ -22,6 +22,7 @@ import {
   let historyGeneration = 0;
   let historyWriteQueue = Promise.resolve();
   let missingButtonsWarned = false;
+  const activeDownloads = new Map();
 
   function constrainPanelPosition() {
     if (!panel?.isConnected) return;
@@ -94,6 +95,7 @@ import {
       </button>
       <section class="tb-body" id="tb-body" aria-hidden="true">
         <div class="tb-actions">
+          <button class="tb-reset-position" type="button">Reset position</button>
           <button class="tb-clear" type="button" aria-label="Clear download history">Clear history</button>
         </div>
         <ol class="tb-list" role="list"></ol>
@@ -102,6 +104,11 @@ import {
     document.documentElement.append(panel);
 
     panel.querySelector('.tb-toggle').addEventListener('click', () => {
+      const toggle = panel.querySelector('.tb-toggle');
+      if (toggle.dataset.dragged === 'true') {
+        delete toggle.dataset.dragged;
+        return;
+      }
       const body = panel.querySelector('.tb-body');
       const expanded = !panel.classList.contains('tb-expanded');
       body.setAttribute('aria-hidden', String(!expanded));
@@ -120,6 +127,7 @@ import {
       }
     });
     panel.querySelector('.tb-clear').addEventListener('click', clearHistory);
+    panel.querySelector('.tb-reset-position').addEventListener('click', resetPanelPosition);
     const toggle = panel.querySelector('.tb-toggle');
     let drag = null;
     let moved = false;
@@ -134,7 +142,7 @@ import {
         top: rect.top,
       };
       moved = false;
-      toggle.setPointerCapture(event.pointerId);
+      toggle.setPointerCapture?.(event.pointerId);
     });
     toggle.addEventListener('pointermove', (event) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
@@ -164,7 +172,7 @@ import {
         panel.style.top = `${top}px`;
         savePanelPosition();
         toggle.dataset.dragged = 'true';
-        setTimeout(() => delete toggle.dataset.dragged, 0);
+        setTimeout(() => delete toggle.dataset.dragged, 100);
       }
     };
     toggle.addEventListener('pointerup', finishDrag);
@@ -226,9 +234,35 @@ import {
       link.textContent = row.label || 'Instagram download';
 
       const status = document.createElement('span');
-      status.textContent = `${row.status || 'saved'}${row.error ? `: ${row.error}` : ''}`;
+      const statusLabels = {
+        downloading: 'Downloading…',
+        completed: 'Saved',
+        unverified: 'Started · status unavailable',
+        failed: `Failed${row.error ? `: ${row.error}` : ''}`,
+        cancelled: 'Tracking stopped',
+      };
+      status.textContent = statusLabels[row.status] || 'Status unavailable';
 
-      item.append(link, status);
+      const actions = document.createElement('div');
+      actions.className = 'tb-item-actions';
+      if (row.status === 'downloading') {
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'tb-cancel';
+        cancel.textContent = 'Stop tracking';
+        cancel.setAttribute('aria-label', `Stop tracking ${row.label || 'Instagram download'}`);
+        cancel.addEventListener('click', () => stopTracking(row.id));
+        actions.append(cancel);
+      }
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'tb-remove-item';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${row.label || 'Instagram download'} from history`);
+      remove.addEventListener('click', () => removeHistoryItem(row.id));
+      actions.append(remove);
+
+      item.append(link, status, actions);
       list.append(item);
     }
   }
@@ -245,7 +279,22 @@ import {
     renderHistory();
   }
 
-  async function waitForDownload(previousProgress, previousAlerts) {
+  function delay(ms, signal) {
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException('Tracking stopped', 'AbortError'));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  async function waitForDownload(previousProgress, previousAlerts, signal) {
     const started = Date.now();
     let sawProgress = false;
     let idleSince = 0;
@@ -273,7 +322,7 @@ import {
         }
       } else if (sawProgress) {
         if (!idleSince) idleSince = Date.now();
-        if (Date.now() - idleSince >= 500) return;
+        if (Date.now() - idleSince >= 500) return true;
       } else {
         const newError = [...document.querySelectorAll('.alert-message')].find((alert) => {
           const message = alert.textContent.trim();
@@ -286,15 +335,12 @@ import {
           );
         });
         if (newError) throw new Error(newError.textContent.trim());
-        if (Date.now() - started > 10000) {
-          throw new Error(
-            'No download activity was detected. Try again after refreshing Instagram.'
-          );
-        }
+        if (Date.now() - started > 10000) return false;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await delay(150, signal);
     }
+    if (!sawProgress) return false;
     throw new Error('Timed out waiting for Instagram to finish the download');
   }
 
@@ -324,18 +370,53 @@ import {
       return true;
     });
     if (!wasSaved) return;
+    const controller = new AbortController();
+    activeDownloads.set(id, controller);
     renderHistory();
 
     try {
-      await waitForDownload(previousProgress, previousAlerts);
-      await updateHistoryItem(id, 'completed');
+      const confirmed = await waitForDownload(previousProgress, previousAlerts, controller.signal);
+      await updateHistoryItem(id, confirmed ? 'completed' : 'unverified');
     } catch (error) {
-      await updateHistoryItem(id, 'failed', error.message || 'Download failed');
+      if (controller.signal.aborted) await updateHistoryItem(id, 'cancelled');
+      else await updateHistoryItem(id, 'failed', error.message || 'Download failed');
+    } finally {
+      activeDownloads.delete(id);
     }
   }
 
+  function stopTracking(id) {
+    activeDownloads.get(id)?.abort();
+    showToast('Download tracking stopped. The browser download may continue.');
+  }
+
+  async function removeHistoryItem(id) {
+    activeDownloads.get(id)?.abort();
+    await serializeHistoryWrite(async () => {
+      const rows = (await getDownloadHistory()).filter((row) => row.id !== id);
+      await saveDownloadHistory(rows, DOWNLOAD_HISTORY_LIMIT);
+    });
+    await renderHistory();
+  }
+
+  function resetPanelPosition() {
+    try {
+      localStorage.removeItem('turboHistoryPosition');
+    } catch (_) {
+      /* Storage can be unavailable on restricted pages. */
+    }
+    panel.style.left = '';
+    panel.style.top = '';
+    panel.style.right = '10px';
+    panel.style.bottom = '10px';
+    showToast('Download history position reset.');
+  }
+
   async function clearHistory() {
+    if (!window.confirm('Clear all download history?')) return;
     historyGeneration += 1;
+    activeDownloads.forEach((controller) => controller.abort());
+    activeDownloads.clear();
     await serializeHistoryWrite(() => saveDownloadHistory([]));
     await renderHistory();
   }
@@ -385,6 +466,7 @@ import {
     if (root.matches?.('.reels-feed-download-button')) buttons.push(root);
     buttons.push(...(root.querySelectorAll?.('.reels-feed-download-button') || []));
     buttons.forEach((downloadButton) => {
+      if (!findReelPoster(downloadButton)) return;
       if (downloadButton.parentElement?.querySelector('.tb-reel-thumbnail-button')) return;
       const thumbnailButton = document.createElement('button');
       thumbnailButton.type = 'button';
@@ -418,6 +500,8 @@ import {
     #turbo-bulk-history .tb-body{box-sizing:border-box;margin-top:0;width:min(320px,calc(100vw - 20px));max-height:0;overflow:hidden;visibility:hidden;opacity:0;transform:translateY(8px) scale(.98);transform-origin:top right;border-radius:12px;padding:0 10px;background:#fff;box-shadow:0 2px 16px #0003;pointer-events:none;transition:max-height .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease,transform .32s cubic-bezier(.2,.8,.2,1),padding .32s ease,margin .32s ease,visibility 0s linear .32s}
     #turbo-bulk-history.tb-expanded .tb-body{margin-top:4px;max-height:38vh;overflow:auto;visibility:visible;opacity:1;transform:translateY(0) scale(1);padding:10px;pointer-events:auto;transition:max-height .32s cubic-bezier(.2,.8,.2,1),opacity .2s ease .04s,transform .32s cubic-bezier(.2,.8,.2,1),padding .32s ease,margin .32s ease,visibility 0s}
     #turbo-bulk-history .tb-actions{display:flex;gap:8px;flex-wrap:wrap}
+    #turbo-bulk-history .tb-list .tb-item-actions{display:flex;gap:6px;margin-top:4px}
+    #turbo-bulk-history .tb-list .tb-item-actions button,#turbo-bulk-history .tb-actions button{padding:4px 7px;font-size:11px}
     #turbo-bulk-history .tb-clear{font-size:12px}
     #turbo-bulk-history .tb-list{padding-left:16px;margin:7px 0 0}
     #turbo-bulk-history .tb-list li{padding:3px 0}
@@ -425,6 +509,7 @@ import {
     #turbo-bulk-history .tb-list a:hover{text-decoration:underline}
     #turbo-bulk-history .tb-list span{color:#555;font-size:12px}
     #turbo-bulk-history .tb-list .tb-failed span{color:#b3261e}
+    #turbo-bulk-history .tb-list .tb-unverified span,#turbo-bulk-history .tb-list .tb-cancelled span{color:#805c16}
     #turbo-bulk-history .tb-empty{padding:14px 0;color:#666;list-style:none}
     .tb-reel-thumbnail-button{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin:0 0 20px 4px;padding:0;border:1px solid rgba(255,255,255,.75);border-radius:50%;background:rgba(20,20,20,.65);color:#fff;font-size:17px;line-height:1;cursor:pointer}
     #turbo-bulk-history .tb-toggle{position:relative}
@@ -451,12 +536,20 @@ import {
   addReelThumbnailButtons();
   const reelThumbnailObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'poster') {
+        addReelThumbnailButtons();
+      }
       for (const node of mutation.addedNodes) {
         if (node.nodeType === Node.ELEMENT_NODE) addReelThumbnailButtons(node);
       }
     }
   });
-  reelThumbnailObserver.observe(document.documentElement, { childList: true, subtree: true });
+  reelThumbnailObserver.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['poster'],
+  });
   chrome.storage.onChanged?.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.turboDownloadHistory) renderHistory();
   });

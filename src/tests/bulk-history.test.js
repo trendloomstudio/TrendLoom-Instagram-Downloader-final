@@ -59,6 +59,7 @@ describe('Download history panel', () => {
     expect(panel.querySelector('.tb-toggle').textContent).toContain('Download History');
     expect(panel.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
     expect(document.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(panel.querySelector('.tb-reset-position').textContent).toBe('Reset position');
   });
 
   it('warns when no download button can be found on the page', async () => {
@@ -84,13 +85,13 @@ describe('Download history panel', () => {
     expect(history()[0].url).toContain('/p/ABC123/');
   });
 
-  it('marks clicks without a matching progress event as failed instead of completed', async () => {
+  it('does not report failure when Instagram exposes no progress indicator', async () => {
     postMarkup().dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await jest.advanceTimersByTimeAsync(0);
     await jest.advanceTimersByTimeAsync(10100);
 
-    expect(history()[0].status).toBe('failed');
-    expect(history()[0].error).toMatch(/No download activity was detected/);
+    expect(history()[0].status).toBe('unverified');
+    expect(document.querySelector('.tb-list span').textContent).toMatch(/status unavailable/);
   });
 
   it('marks a download complete after its newly created progress element ends', async () => {
@@ -122,10 +123,40 @@ describe('Download history panel', () => {
     await jest.advanceTimersByTimeAsync(0);
     expect(history()).toHaveLength(1);
 
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
     document.querySelector('.tb-clear').dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await jest.advanceTimersByTimeAsync(0);
 
     expect(history()).toHaveLength(0);
+    window.confirm.mockRestore();
+  });
+
+  it('keeps history when clear confirmation is declined', async () => {
+    storage[HISTORY_KEY] = [{ id: 'one', label: '@one', url: '/', status: 'completed' }];
+    jest.spyOn(window, 'confirm').mockReturnValue(false);
+    document.querySelector('.tb-clear').click();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(history()).toHaveLength(1);
+    window.confirm.mockRestore();
+  });
+
+  it('stops monitoring without claiming the browser transfer was cancelled', async () => {
+    postMarkup().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await jest.advanceTimersByTimeAsync(0);
+    document.querySelector('.tb-cancel').click();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(history()[0].status).toBe('cancelled');
+    expect(document.querySelector('.tb-toast').textContent).toMatch(
+      /browser download may continue/
+    );
+  });
+
+  it('resets the panel position', () => {
+    localStorage.setItem('turboHistoryPosition', JSON.stringify({ left: '100px', top: '100px' }));
+    document.querySelector('.tb-reset-position').click();
+    expect(localStorage.getItem('turboHistoryPosition')).toBeNull();
+    expect(panelElement.style.left).toBe('');
+    expect(panelElement.style.right).toBe('10px');
   });
 
   it('exposes keyboard-friendly history controls and supports keyboard repositioning', () => {
@@ -144,18 +175,42 @@ describe('Download history panel', () => {
     expect(document.getElementById('turbo-bulk-history').style.left).toBe('16px');
   });
 
-  it('announces when a Reel thumbnail is unavailable', async () => {
+  it('does not open the panel when a pointer drag ends with a click', () => {
+    const toggle = document.querySelector('.tb-toggle');
+    const pointer = (type, properties = {}) => {
+      const event = new Event(type, { bubbles: true });
+      Object.assign(event, properties);
+      return event;
+    };
+    toggle.dispatchEvent(
+      pointer('pointerdown', { button: 0, pointerId: 1, clientX: 10, clientY: 10 })
+    );
+    toggle.dispatchEvent(pointer('pointermove', { pointerId: 1, clientX: 30, clientY: 30 }));
+    toggle.dispatchEvent(pointer('pointerup', { pointerId: 1 }));
+    toggle.click();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('does not show the Reel thumbnail control when there is no usable poster', async () => {
     const downloadButton = document.createElement('div');
     downloadButton.className = 'reels-feed-download-button';
     document.body.append(downloadButton);
     await Promise.resolve();
     await jest.advanceTimersByTimeAsync(0);
-    document.querySelector('.tb-reel-thumbnail-button').click();
+    expect(document.querySelector('.tb-reel-thumbnail-button')).toBeNull();
+  });
 
-    expect(document.getElementById('turbo-download-toast').textContent).toBe(
-      'Reel thumbnail is unavailable.'
-    );
-    expect(document.getElementById('turbo-download-toast').getAttribute('role')).toBe('alert');
+  it('labels the Reel thumbnail button and reveals it when a poster becomes available', async () => {
+    const post = document.createElement('div');
+    post.innerHTML =
+      '<video poster="https://cdn.example/poster.jpg"></video><span class="reels-feed-download-button"></span>';
+    document.body.append(post);
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(0);
+    const button = post.querySelector('.tb-reel-thumbnail-button');
+    expect(button).not.toBeNull();
+    expect(button.getAttribute('aria-label')).toBe('Download Reel thumbnail');
+    expect(button.title).toBe('Download Reel thumbnail');
   });
 
   it('provides mobile-sized thumbnail controls and reduced-motion styling', () => {
