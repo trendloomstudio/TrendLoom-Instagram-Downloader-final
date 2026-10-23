@@ -8,7 +8,20 @@
 [![Code Style: Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg)](.prettierrc.json)
 [![Privacy: 100% Local](https://img.shields.io/badge/privacy-100%25%20local-informational.svg)](PRIVACY.md)
 
-A modern, privacy-focused Chrome and Chromium (Edge, Brave, Opera) browser extension for downloading Instagram photos, high-definition videos, carousel media, Stories, Highlights, Reels, and profile avatars, complete with a persistent, draggable floating download history panel.
+<div align="center">
+  <h3>Private, fast, and polished Instagram media downloads for Chrome and Chromium browsers.</h3>
+  <p>Download photos, videos, carousel posts, Stories, Highlights, Reels, and profile avatars without sending your data anywhere.</p>
+</div>
+
+<p align="center">
+  <a href="#installation"><strong>Install</strong></a> ·
+  <a href="#how-to-use"><strong>How it works</strong></a> ·
+  <a href="#privacy-and-security"><strong>Privacy</strong></a> ·
+  <a href="#contributing"><strong>Contribute</strong></a>
+</p>
+
+> [!TIP]
+> TrendLoom is built for personal use, runs entirely on your device, and keeps a local-only history of recent downloads.
 
 ---
 
@@ -56,6 +69,39 @@ A modern, privacy-focused Chrome and Chromium (Edge, Brave, Opera) browser exten
 ---
 
 ## Features
+
+<div align="left">
+  <table>
+    <tr>
+      <td width="33%">
+        <strong>📸 Complete media coverage</strong><br>
+        Download photos, video clips, carousels, Stories, Highlights, Reels, and profile avatars.
+      </td>
+      <td width="33%">
+        <strong>🧩 Smart history panel</strong><br>
+        Persistent, draggable floating history with status tracking and one-click clearing.
+      </td>
+      <td width="33%">
+        <strong>🔒 Privacy-first design</strong><br>
+        Works locally in-browser with no telemetry, no analytics, and no external tracking servers.
+      </td>
+    </tr>
+    <tr>
+      <td width="33%">
+        <strong>⌨️ Accessibility-first UX</strong><br>
+        Keyboard support, reduced-motion handling, and semantic ARIA labeling throughout the UI.
+      </td>
+      <td width="33%">
+        <strong>⚙️ Chromium-ready</strong><br>
+        Built for Chrome, Edge, Brave, Opera, and other Manifest V3-compatible browsers.
+      </td>
+      <td width="33%">
+        <strong>🛠️ Modern tooling</strong><br>
+        Webpack, Babel, Prettier, ESLint, Jest, and TypeScript definitions included for smooth development.
+      </td>
+    </tr>
+  </table>
+</div>
 
 - **Comprehensive Media Downloads**:
   - **Photos & Videos**: Download single image posts and video clips in their highest available resolution.
